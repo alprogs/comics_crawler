@@ -6,3 +6,9 @@ build
 
 # temporary vim file
 *.swp
+
+# Ignore java build output directory
+bin
+
+# Ignore download path 
+comics

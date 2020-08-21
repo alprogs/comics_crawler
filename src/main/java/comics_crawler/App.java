@@ -14,6 +14,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -40,6 +44,8 @@ public class App {
 	private String comic_title 	= "";
 	private Map<String, List<String>> linkMap 	= new ConcurrentHashMap<>();
 
+	private static final int POOL_SIZE 	= 20;
+	private static ThreadPoolExecutor tpe 	= new ThreadPoolExecutor( POOL_SIZE, POOL_SIZE, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>());
 
 	private void init() {
 		log( "초기화 중" );
@@ -61,8 +67,12 @@ public class App {
 		drv 	= new ChromeDriver( options );
 	}
 
-	public void doProcess() {
-		url = "https://manamoa53.net/bbs/page.php?hid=manga_detail&manga_id=4285";
+	public void doProcess(String[] args) {
+		if ((args.length > 0) && (args[0] != null)) {
+			url = args[0];
+		} else {
+			url = "https://manamoa53.net/bbs/page.php?hid=manga_detail&manga_id=4285";
+		}
 		
 		log( "작업 시작" );
 		log( "URL: "+ url );
@@ -103,28 +113,31 @@ public class App {
 	}
 
 	private void doDownload() {
-		int total_page = 0;
+		int total_page_tmp = 0;
 		for (Entry<String, List<String>> en: linkMap.entrySet()) {
-			total_page += en.getValue().size();
+			total_page_tmp += en.getValue().size();
 		}
+		final int total_page = total_page_tmp;
 
 		log( "총 페이지 수: "+ total_page);
 
 		try {
-			File epPath 	= null;
-				
 			log( "다운로드 시작" );
-			int score = 1;
+			AtomicInteger score = new AtomicInteger( 1 );
 			for (Entry<String, List<String>> en: linkMap.entrySet()) {
-				epPath 	= Paths.get( DOWNLOAD_PATH, comic_title, en.getKey() ).toFile();
-				epPath.mkdirs();
+				tpe.execute( new Runnable() {
+					public void run() {
+						File epPath 	= Paths.get( DOWNLOAD_PATH, comic_title, en.getKey() ).toFile();
+						epPath.mkdirs();
 
-				int pageIndex = 0;
-				for (String pageUrl: en.getValue()) {
-					downloadPage( pageIndex++, pageUrl, epPath.getAbsolutePath() );
-				
-					log( String.format(" - 다운로드 중 .. %s [ %d / %d ]", en.getKey(), score++, total_page) );
-				}
+						int pageIndex = 0;
+						for (String pageUrl: en.getValue()) {
+							downloadPage( pageIndex++, pageUrl, epPath.getAbsolutePath() );
+
+							log( String.format(" - 다운로드 중 .. %s [ %d / %d ]", en.getKey(), score.getAndIncrement(), total_page) );
+						}
+					}
+				} );
 			}
 			
 		} catch (Exception e) {
@@ -262,7 +275,7 @@ public class App {
 	public static void main(String[] args) {
 		App proc 	= new App();
 
-		proc.doProcess();
+		proc.doProcess(args);
     }
 }
 
